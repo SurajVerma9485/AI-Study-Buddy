@@ -132,14 +132,28 @@ export default function LoginForm() {
         loading={isLoading}
         disabled={isLoading}
         fullWidth
-        style={{ marginTop: '6px' }}
+        style={{
+          marginTop: '10px',
+          fontWeight: 700,
+          letterSpacing: '0.015em',
+        }}
       >
         Sign In to Study Buddy
       </Button>
 
-      <div style={{ margin: '12px 0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ margin: '14px 0', display: 'flex', alignItems: 'center', gap: '14px' }}>
         <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-subtle)' }} />
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Quick Demo</span>
+        <span
+          style={{
+            fontSize: '0.725rem',
+            fontWeight: 600,
+            color: 'var(--text-muted)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          Quick Demo
+        </span>
         <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-subtle)' }} />
       </div>
 
@@ -152,6 +166,9 @@ export default function LoginForm() {
         onClick={handleDemoLogin}
         disabled={isLoading}
         fullWidth
+        style={{
+          fontWeight: 600,
+        }}
       >
         Sign In as Demo Student (1-Click)
       </Button>

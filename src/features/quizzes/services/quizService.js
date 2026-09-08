@@ -1,6 +1,7 @@
 import apiClient from '../../../services/api';
 import { MOCK_COURSES, MOCK_RECENT_QUIZZES } from '../../../services/mockData';
 import { groqService } from '../../../services/groqService';
+import { weakTopicsManager } from '../../../services/weakTopicsManager';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
 const LOCAL_QUIZZES_KEY = 'study_buddy_quizzes_data';
@@ -120,12 +121,12 @@ export const quizService = {
 
         const generatedQuiz = {
           id: `quiz-${Date.now()}`,
-          courseId: course.id,
-          courseCode: course.code,
-          courseName: course.name,
-          topicId: topic?.id || 'all',
+          courseId: courseId || course.id,
+          courseCode: subject ? subject.slice(0, 4).toUpperCase() : course.code,
+          courseName: courseName || course.name,
+          topicId: topicId || topic?.id || 'all',
           topicName: topicTitle,
-          title: `${course.code}: ${topicTitle}`,
+          title: `${subject || course.code}: ${topicTitle}`,
           difficulty,
           type,
           questionsCount: Number(questionCount) || 5,
@@ -332,7 +333,11 @@ export const quizService = {
         answers: finalAnswers,
         quiz,
       });
-      return response.data;
+      const evalData = response.data;
+      weakTopicsManager.updateFromQuizResult(evalData, quiz);
+      sessionStorage.setItem(`quiz_result_${attemptId}`, JSON.stringify(evalData));
+      if (quiz?.id) sessionStorage.setItem(`quiz_result_${quiz.id}`, JSON.stringify(evalData));
+      return evalData;
     } catch (error) {
       if ((error.response?.status === 404 || error.code === 'ERR_NETWORK') || ENABLE_MOCK_FALLBACK) {
         await new Promise((r) => setTimeout(r, 400));
@@ -361,7 +366,7 @@ export const quizService = {
           return {
             questionId: q.id,
             question: q.question,
-            topicName: q.topicName || 'General',
+            topicName: q.topicName || quiz?.topicName || quiz?.title || 'Core Concepts',
             userAnswer: q.options ? q.options[studentAns] : studentAns || 'Unanswered',
             correctAnswer: q.options ? q.options[q.correctAnswerIndex] : q.correctAnswerText || 'Correct concept answer',
             isCorrect,
@@ -371,6 +376,28 @@ export const quizService = {
 
         const total = questions.length;
         const percentage = Math.round((correctCount / total) * 100);
+
+        // Calculate dynamic topic breakdown from questions
+        const topicStats = {};
+        explanations.forEach((exp) => {
+          const tName = exp.topicName || quiz?.topicName || quiz?.title || 'Core Concepts';
+          if (!topicStats[tName]) topicStats[tName] = { total: 0, correct: 0 };
+          topicStats[tName].total++;
+          if (exp.isCorrect) topicStats[tName].correct++;
+        });
+
+        const dynamicTopicPerformance = Object.entries(topicStats).map(([topicName, stats]) => {
+          const score = Math.round((stats.correct / stats.total) * 100);
+          return {
+            topicName,
+            score,
+            status: score >= 80 ? 'Mastered' : score >= 60 ? 'Improving' : 'Weak Area',
+          };
+        });
+
+        const dynamicWeakTopics = dynamicTopicPerformance
+          .filter((tp) => tp.score < 75)
+          .map((tp) => tp.topicName);
 
         // Update local quiz best score
         if (quiz) {
@@ -386,36 +413,33 @@ export const quizService = {
           attemptId,
           quizId: quiz?.id || 'quiz-default',
           quizTitle: quiz?.title || 'Practice Drill',
+          courseId: quiz?.courseId || 'course-cs301',
+          courseCode: quiz?.courseCode || 'CS 301',
           score: correctCount,
           totalQuestions: total,
           correctCount,
           incorrectCount: total - correctCount,
           percentage,
           completedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          topicPerformance: [
-            {
-              topicName: 'Consensus & Raft Invariants',
-              score: percentage >= 60 ? 85 : 45,
-              status: percentage >= 60 ? 'Mastered' : 'Weak Area',
-            },
-            {
-              topicName: 'Logical Time & Vector Clocks',
-              score: percentage >= 75 ? 80 : 35,
-              status: percentage >= 75 ? 'Improving' : 'Weak Area',
-            },
-          ],
-          weakTopics: percentage < 80 ? ['Logical Time & Vector Clocks', 'Distributed Deadlock Inversion'] : [],
+          topicPerformance: dynamicTopicPerformance,
+          weakTopics: dynamicWeakTopics,
           recommendedActivity: {
-            title: 'Launch ELI10 Tutor on Vector Clocks',
+            title: dynamicWeakTopics.length > 0 ? `Launch ELI10 Tutor on ${dynamicWeakTopics[0]}` : 'Explore Advanced Challenge Drill',
             type: 'AI Tutor Session',
-            reason: percentage < 80 ? 'Targeting diagnosed concept gap from this quiz' : 'Reinforce advanced invariants',
+            reason: dynamicWeakTopics.length > 0 ? 'Targeting diagnosed concept gap from this quiz' : 'Reinforce advanced invariants',
             route: `/courses/${quiz?.courseId || 'course-cs301'}/tutor`,
           },
           explanations,
         };
 
+        // Update persistent weak topics store & emit update event
+        weakTopicsManager.updateFromQuizResult(backendResult, quiz);
+
         // Cache result for display on /result page
         sessionStorage.setItem(`quiz_result_${attemptId}`, JSON.stringify(backendResult));
+        if (quiz?.id) {
+          sessionStorage.setItem(`quiz_result_${quiz.id}`, JSON.stringify(backendResult));
+        }
         return backendResult;
       }
       throw error;

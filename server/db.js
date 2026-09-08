@@ -4,15 +4,22 @@ dotenv.config();
 
 const { Pool } = pg;
 
-const pool = new Pool({
-  host: process.env.PG_HOST || 'localhost',
-  port: parseInt(process.env.PG_PORT || '5432', 10),
-  user: process.env.PG_USER || 'postgres',
-  password: process.env.POSTGRESQL_KEY || process.env.PG_PASSWORD || '1234',
-  database: process.env.PG_DATABASE || 'postgres',
-  max: 10,
-  idleTimeoutMillis: 30000,
-});
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+    max: 10,
+    idleTimeoutMillis: 30000,
+  })
+  : new Pool({
+    host: process.env.PG_HOST || 'localhost',
+    port: parseInt(process.env.PG_PORT || '5432', 10),
+    user: process.env.PG_USER || 'postgres',
+    password: process.env.POSTGRESQL_KEY || process.env.PG_PASSWORD || '1234',
+    database: process.env.PG_DATABASE || 'postgres',
+    max: 10,
+    idleTimeoutMillis: 30000,
+  });
 
 /**
  * Initializes the required database tables if they do not exist.

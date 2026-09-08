@@ -15,6 +15,7 @@ export default function Button({
   onClick,
   className = '',
   fullWidth = false,
+  style = {},
   ...props
 }) {
   const baseStyle = {
@@ -29,30 +30,31 @@ export default function Button({
     transition: 'var(--transition-smooth)',
     textDecoration: 'none',
     width: fullWidth ? '100%' : 'auto',
-    gap: '8px',
-    lineHeight: 1,
+    gap: '10px',
+    lineHeight: 1.2,
     userSelect: 'none',
     position: 'relative',
     outline: 'none',
   };
 
   const sizeStyles = {
-    sm: { padding: '8px 14px', fontSize: '0.85rem' },
-    md: { padding: '10px 18px', fontSize: '0.925rem' },
-    lg: { padding: '14px 24px', fontSize: '1.05rem' },
+    sm: { padding: '8px 16px', fontSize: '0.85rem', minHeight: '36px' },
+    md: { padding: '12px 22px', fontSize: '0.95rem', minHeight: '44px' },
+    lg: { padding: '15px 28px', fontSize: '1.05rem', minHeight: '52px' },
   };
 
   const variantStyles = {
     primary: {
       background: 'var(--primary-gradient)',
       color: '#ffffff',
-      boxShadow: '0 2px 10px rgba(99, 102, 241, 0.3)',
-      border: 'none',
+      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+      border: '1px solid rgba(255, 255, 255, 0.12)',
     },
     secondary: {
       background: 'var(--bg-elevated)',
       color: 'var(--text-primary)',
       border: '1px solid var(--border-medium)',
+      boxShadow: 'var(--shadow-sm)',
     },
     outline: {
       background: 'transparent',
@@ -68,11 +70,13 @@ export default function Button({
       background: 'var(--danger)',
       color: '#ffffff',
       border: 'none',
+      boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
     },
     success: {
       background: 'var(--success)',
       color: '#ffffff',
       border: 'none',
+      boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
     },
   };
 
@@ -80,6 +84,7 @@ export default function Button({
     ...baseStyle,
     ...sizeStyles[size],
     ...variantStyles[variant],
+    ...style,
   };
 
   return (
@@ -105,9 +110,9 @@ export default function Button({
         />
       ) : (
         <>
-          {Icon && iconPosition === 'left' && <Icon size={size === 'sm' ? 16 : 18} />}
-          {children}
-          {Icon && iconPosition === 'right' && <Icon size={size === 'sm' ? 16 : 18} />}
+          {Icon && iconPosition === 'left' && <Icon size={size === 'sm' ? 16 : 18} style={{ flexShrink: 0 }} />}
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>{children}</span>
+          {Icon && iconPosition === 'right' && <Icon size={size === 'sm' ? 16 : 18} style={{ flexShrink: 0 }} />}
         </>
       )}
     </button>

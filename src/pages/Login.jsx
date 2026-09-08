@@ -116,7 +116,7 @@ export default function Login() {
                 loading={loading}
                 icon={LogIn}
                 fullWidth
-                style={{ marginTop: '8px' }}
+                style={{ marginTop: '10px', fontWeight: 700 }}
               >
                 Sign In
               </Button>

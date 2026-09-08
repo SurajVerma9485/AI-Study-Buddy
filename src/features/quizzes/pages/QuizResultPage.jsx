@@ -141,6 +141,14 @@ export default function QuizResultPage() {
           >
             Discuss in AI Tutor
           </Button>
+
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => navigate('/dashboard')}
+          >
+            View on Dashboard
+          </Button>
         </div>
       </Card>
 

@@ -1,5 +1,6 @@
 import apiClient from '../../../services/api';
 import { MOCK_COURSES, MOCK_RECENT_QUIZZES } from '../../../services/mockData';
+import { weakTopicsManager } from '../../../services/weakTopicsManager';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
 
@@ -33,24 +34,25 @@ export const progressService = {
       return response.data;
     } catch (error) {
       if ((error.response?.status === 404 || error.code === 'ERR_NETWORK') || ENABLE_MOCK_FALLBACK) {
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, 150));
 
-        const course = MOCK_COURSES.find((c) => c.id === courseId) || MOCK_COURSES[0];
-        const courseQuizzes = MOCK_RECENT_QUIZZES.filter((q) => q.courseId === course.id);
+        const savedCourses = (() => {
+          try {
+            const raw = localStorage.getItem('study_buddy_courses_data');
+            return raw ? JSON.parse(raw) : MOCK_COURSES;
+          } catch {
+            return MOCK_COURSES;
+          }
+        })();
 
+        const course =
+          (savedCourses && savedCourses.find((c) => c.id === courseId)) ||
+          MOCK_COURSES.find((c) => c.id === courseId) ||
+          MOCK_COURSES[0];
+
+        const courseQuizzes = weakTopicsManager.getQuizHistory(course.id);
+        const weakTopics = weakTopicsManager.getWeakTopics(course.id);
         const topics = course.topics || [];
-        const weakTopics = topics
-          .filter((t) => t.status === 'weak' || (t.mastery && t.mastery < 60))
-          .map((t) => ({
-            id: t.id,
-            courseId: course.id,
-            courseCode: course.code,
-            topic: t.title,
-            mastery: t.mastery || 42,
-            trend: '-4% this week',
-            suggestedAction: `Review with AI Tutor in ELI10 mode`,
-            actionTarget: `/courses/${course.id}/tutor`,
-          }));
 
         const recentlyStudied = topics.slice(0, 3).map((t, idx) => ({
           id: `recent-${t.id}`,
@@ -122,16 +124,7 @@ export const progressService = {
           recentlyStudiedTopics: recentlyStudied,
           studyActivity,
           progressOverTime: generateProgressTimeline(course.progress || 74),
-          quizHistory: courseQuizzes.length > 0 ? courseQuizzes : [
-            {
-              id: 'quiz-sim-1',
-              title: `${course.code} Comprehensive Check`,
-              score: 80,
-              questionsCount: 10,
-              difficulty: 'Medium',
-              completedAt: 'Yesterday',
-            },
-          ],
+          quizHistory: courseQuizzes.length > 0 ? courseQuizzes : MOCK_RECENT_QUIZZES.filter((q) => q.courseId === course.id),
         };
       }
       throw error;
@@ -148,20 +141,8 @@ export const progressService = {
       return response.data;
     } catch (error) {
       if ((error.response?.status === 404 || error.code === 'ERR_NETWORK') || ENABLE_MOCK_FALLBACK) {
-        await new Promise((r) => setTimeout(r, 200));
-        const course = MOCK_COURSES.find((c) => c.id === courseId) || MOCK_COURSES[0];
-        return (course.topics || [])
-          .filter((t) => t.status === 'weak' || (t.mastery && t.mastery < 60))
-          .map((t) => ({
-            id: t.id,
-            courseId: course.id,
-            courseCode: course.code,
-            topic: t.title,
-            mastery: t.mastery || 40,
-            trend: '-4% this week',
-            suggestedAction: 'Take 5-min Hint Mode Quiz',
-            actionTarget: `/courses/${course.id}/quizzes`,
-          }));
+        await new Promise((r) => setTimeout(r, 100));
+        return weakTopicsManager.getWeakTopics(courseId);
       }
       throw error;
     }
@@ -177,24 +158,25 @@ export const progressService = {
       return response.data;
     } catch (error) {
       if ((error.response?.status === 404 || error.code === 'ERR_NETWORK') || ENABLE_MOCK_FALLBACK) {
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 150));
 
-        const allTopics = MOCK_COURSES.flatMap((c) =>
-          (c.topics || []).map((t) => ({ ...t, courseId: c.id, courseCode: c.code }))
+        const savedCourses = (() => {
+          try {
+            const raw = localStorage.getItem('study_buddy_courses_data');
+            return raw ? JSON.parse(raw) : MOCK_COURSES;
+          } catch {
+            return MOCK_COURSES;
+          }
+        })();
+
+        const coursesList = savedCourses && savedCourses.length > 0 ? savedCourses : MOCK_COURSES;
+
+        const allTopics = coursesList.flatMap((c) =>
+          (c.topics || []).map((t) => ({ ...t, courseId: c.id, courseCode: c.code, courseName: c.name }))
         );
 
-        const weakTopics = allTopics
-          .filter((t) => t.status === 'weak' || (t.mastery && t.mastery < 60))
-          .map((t) => ({
-            id: t.id,
-            courseId: t.courseId,
-            courseCode: t.courseCode,
-            topic: t.title,
-            mastery: t.mastery || 42,
-            trend: '-3% recently',
-            suggestedAction: 'Take 5-minute targeted AI drill',
-            actionTarget: `/courses/${t.courseId}/quizzes`,
-          }));
+        const weakTopics = weakTopicsManager.getWeakTopics('all');
+        const quizHistory = weakTopicsManager.getQuizHistory('all');
 
         const recentlyStudied = [
           {
@@ -268,20 +250,24 @@ export const progressService = {
           },
         ];
 
+        const avgMastery = coursesList.length
+          ? Math.round(coursesList.reduce((acc, c) => acc + (c.progress || 0), 0) / coursesList.length)
+          : 78;
+
         return {
-          overallMastery: 78,
+          overallMastery: avgMastery,
           questionsAttempted: 240,
           correctAnswers: 192,
           quizAccuracyPercentage: 80,
-          quizzesCompletedCount: 28,
+          quizzesCompletedCount: quizHistory.length || 28,
           studyStreakDays: 14,
           totalStudyHours: 46.2,
           topicsMastery: allTopics,
           weakTopics,
           recentlyStudiedTopics: recentlyStudied,
           studyActivity,
-          progressOverTime: generateProgressTimeline(78),
-          quizHistory: MOCK_RECENT_QUIZZES,
+          progressOverTime: generateProgressTimeline(avgMastery),
+          quizHistory: quizHistory.length > 0 ? quizHistory : MOCK_RECENT_QUIZZES,
         };
       }
       throw error;

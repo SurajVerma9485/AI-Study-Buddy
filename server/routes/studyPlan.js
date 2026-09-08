@@ -76,8 +76,8 @@ function extractJson(text) {
  * Deterministic fallback plan generator if Groq is slow or offline
  */
 function generateFallbackPlan({ classLevel, subject, chapter, days, studyTime, dailyMinutes }) {
-  const isCh1 = chapter.toLowerCase().includes('real number') || chapter.includes('1');
-  const chapterName = isCh1 ? 'Chapter 1: Real Numbers' : 'Chapter 2: Polynomials';
+  const chapterName = chapter || 'Chapter 1 - Real Numbers';
+  const isCh1 = chapterName.toLowerCase().includes('real number');
   const numDays = Math.max(1, Math.min(parseInt(days, 10) || 5, 30));
 
   const daySchedules = [];
@@ -93,28 +93,28 @@ function generateFallbackPlan({ classLevel, subject, chapter, days, studyTime, d
         dayTheme = 'Foundation & Core Concepts';
         bulletPoints = [
           `Learn ${chapterName} core concepts`,
-          'Read Vedantu revision notes',
+          'Read textbook & NCERT revision notes',
           'Practice basic questions & definitions',
         ];
       } else if (i === 2) {
         dayTheme = 'Key Theorems & Methods';
         bulletPoints = [
           `Continue ${chapterName} deep dive`,
-          isCh1 ? "Master Euclid's Division Lemma & Algorithm" : 'Study Geometrical meaning of Zeroes',
+          isCh1 ? "Master Euclid's Division Lemma & Algorithm" : `Study core theorems and principles of ${chapterName}`,
           'Practice textbook examples step-by-step',
         ];
       } else if (i === 3) {
         dayTheme = 'Targeted Practice & Problem Solving';
         bulletPoints = [
           'Practice important exam-focused questions',
-          isCh1 ? 'Solve HCF & LCM property problems' : 'Practice Sum and Product of Zeroes (alpha, beta)',
+          isCh1 ? 'Solve HCF & LCM property problems' : `Practice application problems for ${chapterName}`,
           'Identify tricky edge cases and common mistakes',
         ];
       } else if (i === 4) {
         dayTheme = 'Advanced Problems & Exercise Drills';
         bulletPoints = [
           'Solve exercise questions independently',
-          isCh1 ? 'Practice proof of irrationality (sqrt 2, sqrt 3)' : 'Practice Division Algorithm & middle-term splitting',
+          isCh1 ? 'Practice proof of irrationality (sqrt 2, sqrt 3)' : `Solve exercise problems and derivations for ${chapterName}`,
           'Review formula sheet and short notes',
         ];
       } else {
@@ -237,7 +237,7 @@ router.post('/study-plan', async (req, res) => {
 
     const numDays = Math.max(1, Math.min(parseInt(days, 10) || 5, 30));
     const targetChapter = chapter || 'Chapter 1 - Real Numbers';
-    const notesContext = CHAPTER_NOTES_CONTEXT[targetChapter] || Object.values(CHAPTER_NOTES_CONTEXT).join('\n');
+    const notesContext = CHAPTER_NOTES_CONTEXT[targetChapter] || `Standard CBSE / NCERT ${classLevel} ${subject} syllabus covering all core concepts, theorems, formulas, solved examples, NCERT exercise questions, and board exam preparation for ${targetChapter}.`;
 
     // If Groq API Key is configured, attempt high-precision LLM synthesis
     if (GROQ_API_KEY && GROQ_API_KEY.startsWith('gsk_')) {

@@ -27,6 +27,7 @@ import { useCourses } from '../context/CourseContext';
 import { studyPlanService } from '../features/study-plans';
 import { progressService } from '../features/progress';
 import { quizService } from '../features/quizzes';
+import { weakTopicsManager } from '../services/weakTopicsManager';
 import {
   MOCK_STUDY_PLAN_TASKS,
   MOCK_WEAK_TOPICS,
@@ -46,6 +47,9 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { courses, loading: coursesLoading, error: coursesError, fetchCourses, addCourse, setSelectedCourseId } = useCourses();
+
+  // Active course filter for dynamic weak topics and quiz diagnostics
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState('all');
 
   // Create Course Modal state
   const [createCourseModalOpen, setCreateCourseModalOpen] = useState(false);
@@ -84,10 +88,13 @@ export default function Dashboard() {
           .map((t) => ({ ...t, planId: p.id, courseCode: p.courseCode }))
       );
 
+      const dynamicWeak = weakTopicsManager.getWeakTopics(selectedCourseFilter);
+      const dynamicQuizzes = weakTopicsManager.getQuizHistory(selectedCourseFilter);
+
       setHubData({
-        weakTopics: globalProg?.weakTopics || MOCK_WEAK_TOPICS,
+        weakTopics: dynamicWeak,
         todayTasks: todayTasks.length > 0 ? todayTasks : MOCK_STUDY_PLAN_TASKS,
-        recentQuizzes: quizzes.length > 0 ? quizzes.slice(0, 3) : (globalProg?.quizHistory?.slice(0, 3) || MOCK_RECENT_QUIZZES),
+        recentQuizzes: dynamicQuizzes.length > 0 ? dynamicQuizzes.slice(0, 3) : (quizzes.length > 0 ? quizzes.slice(0, 3) : (globalProg?.quizHistory?.slice(0, 3) || MOCK_RECENT_QUIZZES)),
         overallMastery: globalProg?.overallMastery || 74,
         questionsAttempted: globalProg?.questionsAttempted || 85,
         correctAnswers: globalProg?.correctAnswers || 68,
@@ -97,9 +104,9 @@ export default function Dashboard() {
       console.error('Error loading hub data in Dashboard', err);
       setHubData((prev) => ({
         ...prev,
-        weakTopics: MOCK_WEAK_TOPICS,
+        weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter),
         todayTasks: MOCK_STUDY_PLAN_TASKS,
-        recentQuizzes: MOCK_RECENT_QUIZZES,
+        recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter).slice(0, 3),
         loading: false,
       }));
     }
@@ -108,6 +115,27 @@ export default function Dashboard() {
   useEffect(() => {
     loadHubData();
   }, []);
+
+  // Re-sync weak topics and quizzes whenever selected course changes
+  useEffect(() => {
+    setHubData((prev) => ({
+      ...prev,
+      weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter),
+      recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter).slice(0, 3),
+    }));
+  }, [selectedCourseFilter]);
+
+  // Subscribe to real-time quiz completions across the app
+  useEffect(() => {
+    const unsubscribe = weakTopicsManager.subscribe(() => {
+      setHubData((prev) => ({
+        ...prev,
+        weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter),
+        recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter).slice(0, 3),
+      }));
+    });
+    return unsubscribe;
+  }, [selectedCourseFilter]);
 
   const handleToggleTask = async (planId, taskId) => {
     setHubData((prev) => ({
@@ -232,7 +260,7 @@ export default function Dashboard() {
 
           <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '0.95rem', maxWidth: '640px', lineHeight: 1.5 }}>
             Here is your daily learning briefing. You have{' '}
-            <strong style={{ color: 'var(--danger)' }}>{hubData.weakTopics.length} weak topics</strong> prioritized for revision and your closest target exam is in{' '}
+            <strong style={{ color: 'var(--danger)' }}>{hubData.weakTopics.length} weak topics</strong> prioritized for revision{selectedCourseFilter !== 'all' ? ` in ${courses.find((c) => c.id === selectedCourseFilter)?.code || 'this course'}` : ' across courses'} and your closest target exam is in{' '}
             <strong style={{ color: '#f59e0b' }}>{daysUntilExam} days</strong> ({nextExamCourse?.code || 'CS 301'}).
           </p>
         </div>
@@ -434,65 +462,86 @@ export default function Dashboard() {
               />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                {courses.slice(0, 3).map((course) => (
-                  <Card
-                    key={course.id}
-                    hoverable
-                    onClick={() => {
-                      setSelectedCourseId(course.id);
-                      navigate(`/courses/${course.id}`);
-                    }}
-                  >
-                    <CardContent style={{ padding: '20px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontWeight: 800, fontSize: '0.85rem', color: course.color || 'var(--primary)' }}>
-                              {course.code}
-                            </span>
-                            <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                              {course.name}
-                            </h3>
+                {courses.slice(0, 3).map((course) => {
+                  const isFiltered = selectedCourseFilter === course.id;
+                  return (
+                    <Card
+                      key={course.id}
+                      hoverable
+                      onClick={() => {
+                        setSelectedCourseFilter(isFiltered ? 'all' : course.id);
+                        setSelectedCourseId(course.id);
+                      }}
+                      style={{
+                        border: isFiltered ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
+                        boxShadow: isFiltered ? '0 0 16px rgba(99, 102, 241, 0.25)' : 'none',
+                        transition: 'all 0.2s ease',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <CardContent style={{ padding: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 800, fontSize: '0.85rem', color: course.color || 'var(--primary)' }}>
+                                {course.code}
+                              </span>
+                              <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                                {course.name}
+                              </h3>
+                              {isFiltered && (
+                                <Badge variant="primary" size="sm">
+                                  Active Filter
+                                </Badge>
+                              )}
+                            </div>
+                            <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '480px' }}>
+                              {course.description}
+                            </p>
                           </div>
-                          <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '480px' }}>
-                            {course.description}
-                          </p>
+
+                          <Badge variant="outline" size="sm">
+                            Exam: {course.examDate}
+                          </Badge>
                         </div>
 
-                        <Badge variant="outline" size="sm">
-                          Exam: {course.examDate}
-                        </Badge>
-                      </div>
+                        <div style={{ marginTop: '14px' }}>
+                          <ProgressBar
+                            value={course.progress}
+                            label="Mastery"
+                            size="sm"
+                            variant="auto"
+                          />
+                        </div>
 
-                      <div style={{ marginTop: '14px' }}>
-                        <ProgressBar
-                          value={course.progress}
-                          label="Mastery"
-                          size="sm"
-                          variant="auto"
-                        />
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginTop: '14px',
-                          paddingTop: '10px',
-                          borderTop: '1px solid var(--border-subtle)',
-                          fontSize: '0.8rem',
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        <span>{course.topics?.length || 0} Topics • {course.documentsCount || 0} Documents</span>
-                        <span style={{ color: 'var(--primary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          View Syllabus <ArrowUpRight size={14} />
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginTop: '14px',
+                            paddingTop: '10px',
+                            borderTop: '1px solid var(--border-subtle)',
+                            fontSize: '0.8rem',
+                            color: 'var(--text-muted)',
+                          }}
+                        >
+                          <span>{course.topics?.length || 0} Topics • {course.documentsCount || 0} Documents</span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCourseId(course.id);
+                              navigate(`/courses/${course.id}`);
+                            }}
+                            style={{ color: 'var(--primary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+                          >
+                            View Syllabus <ArrowUpRight size={14} />
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -634,54 +683,162 @@ export default function Dashboard() {
           {/* Weak Topics Diagnostic */}
           <Card glass>
             <CardHeader>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <AlertTriangle size={18} color="#ef4444" />
-                <CardTitle style={{ fontSize: '1.1rem' }}>Weak Topics & Concept Gaps</CardTitle>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={18} color="#ef4444" />
+                  <div>
+                    <CardTitle style={{ fontSize: '1.1rem', margin: 0 }}>Weak Topics & Concept Gaps</CardTitle>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Updated live from quiz results
+                    </span>
+                  </div>
+                </div>
+
+                {/* Course Selection Dropdown */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <label htmlFor="dashboard-course-filter" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Course:
+                  </label>
+                  <select
+                    id="dashboard-course-filter"
+                    value={selectedCourseFilter}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedCourseFilter(val);
+                      if (val !== 'all') setSelectedCourseId(val);
+                    }}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-medium)',
+                      backgroundColor: 'var(--bg-elevated)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="all">All Courses ({courses.length})</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </CardHeader>
             <CardContent style={{ padding: '0 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {hubData.weakTopics.slice(0, 3).map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--bg-elevated)',
-                    border: '1px solid rgba(239, 68, 68, 0.25)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary)' }}>
-                      {item.courseCode}
-                    </span>
-                    <Badge variant="danger" size="sm">
-                      {item.mastery}% Retention
-                    </Badge>
-                  </div>
-
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                    {item.topic}
-                  </div>
-
-                  <button
-                    onClick={() => navigate(item.actionTarget || '/tutor')}
+              {hubData.weakTopics.length > 0 ? (
+                hubData.weakTopics.slice(0, 4).map((item) => (
+                  <div
+                    key={item.id}
                     style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: '#60a5fa',
-                      fontSize: '0.775rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      padding: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--bg-elevated)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
                     }}
                   >
-                    {item.suggestedAction || 'Review with AI Tutor in ELI10 Mode'} →
-                  </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary)' }}>
+                        {item.courseCode}
+                      </span>
+                      <Badge variant="danger" size="sm">
+                        {item.mastery}% Retention
+                      </Badge>
+                    </div>
+
+                    <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                      {item.topic}
+                    </div>
+
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      From Quiz: <em>{item.sourceQuizTitle || 'Diagnostic Drill'}</em> • {item.trend || 'Needs revision'}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <button
+                        onClick={() => navigate(item.actionTarget || (item.courseId ? `/courses/${item.courseId}/tutor` : '/tutor'))}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#60a5fa',
+                          fontSize: '0.775rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        {item.suggestedAction || 'Review with AI Tutor in ELI10 Mode'} →
+                      </button>
+
+                      <button
+                        onClick={() => navigate(item.courseId ? `/courses/${item.courseId}/quizzes` : '/quizzes')}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--primary)',
+                          fontSize: '0.775rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      >
+                        Retake Drill ↺
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : hubData.recentQuizzes.length > 0 ? (
+                <div
+                  style={{
+                    padding: '24px 16px',
+                    textAlign: 'center',
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                  }}
+                >
+                  <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>🎉</div>
+                  <div style={{ fontWeight: 700, color: '#10b981', fontSize: '0.925rem', marginBottom: '4px' }}>
+                    No Weak Topics Diagnosed!
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                    Quiz scores for {selectedCourseFilter !== 'all' ? (courses.find((c) => c.id === selectedCourseFilter)?.code || 'this course') : 'your courses'} show solid retention (≥75%).
+                  </p>
                 </div>
-              ))}
+              ) : (
+                <div
+                  style={{
+                    padding: '24px 16px',
+                    textAlign: 'center',
+                    background: 'var(--bg-elevated)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px dashed var(--border-medium)',
+                  }}
+                >
+                  <HelpCircle size={26} color="var(--primary)" style={{ marginBottom: '8px' }} />
+                  <div style={{ fontWeight: 700, fontSize: '0.925rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    No Quiz Diagnostic Yet
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
+                    Take a practice quiz in {selectedCourseFilter !== 'all' ? (courses.find((c) => c.id === selectedCourseFilter)?.name || 'this course') : 'your courses'} to diagnose concept gaps.
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={Sparkles}
+                    onClick={() => navigate(selectedCourseFilter !== 'all' ? `/courses/${selectedCourseFilter}/quizzes` : '/quizzes')}
+                  >
+                    Start Practice Quiz
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -691,55 +848,68 @@ export default function Dashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Award size={18} color="#10b981" />
-                  <CardTitle style={{ fontSize: '1.1rem' }}>Recent Quiz Results</CardTitle>
+                  <CardTitle style={{ fontSize: '1.1rem' }}>
+                    Recent Quiz Results {selectedCourseFilter !== 'all' ? `(${courses.find((c) => c.id === selectedCourseFilter)?.code || ''})` : ''}
+                  </CardTitle>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => navigate('/quizzes')} style={{ fontSize: '0.75rem' }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(selectedCourseFilter !== 'all' ? `/courses/${selectedCourseFilter}/quizzes` : '/quizzes')}
+                  style={{ fontSize: '0.75rem' }}
+                >
                   All Quizzes
                 </Button>
               </div>
             </CardHeader>
             <CardContent style={{ padding: '0 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {hubData.recentQuizzes.map((quiz) => (
-                <div
-                  key={quiz.id}
-                  onClick={() => navigate(`/quizzes/${quiz.id}`)}
-                  className="card-hover-scale"
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--bg-elevated)',
-                    border: '1px solid var(--border-subtle)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--primary)' }}>
-                        {quiz.courseCode}
-                      </span>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {quiz.title}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {quiz.questionsCount} questions • {quiz.difficulty || 'Medium'} • {quiz.completedAt || 'Recent'}
-                    </span>
-                  </div>
-
-                  <span
+              {hubData.recentQuizzes.length > 0 ? (
+                hubData.recentQuizzes.map((quiz) => (
+                  <div
+                    key={quiz.id}
+                    onClick={() => navigate(`/quizzes/${quiz.id}`)}
+                    className="card-hover-scale"
                     style={{
-                      fontSize: '1rem',
-                      fontWeight: 800,
-                      color: quiz.score >= 80 ? '#10b981' : quiz.score >= 60 ? '#f59e0b' : '#ef4444',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
                     }}
                   >
-                    {quiz.score !== null ? `${quiz.score}%` : 'Pending'}
-                  </span>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--primary)' }}>
+                          {quiz.courseCode}
+                        </span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {quiz.title}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {quiz.questionsCount} questions • {quiz.difficulty || 'Medium'} • {quiz.completedAt || 'Recent'}
+                      </span>
+                    </div>
+
+                    <span
+                      style={{
+                        fontSize: '1rem',
+                        fontWeight: 800,
+                        color: quiz.score >= 80 ? '#10b981' : quiz.score >= 60 ? '#f59e0b' : '#ef4444',
+                      }}
+                    >
+                      {quiz.score !== null ? `${quiz.score}%` : 'Pending'}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No quiz attempts found for this course.
                 </div>
-              ))}
+              )}
             </CardContent>
           </Card>
 

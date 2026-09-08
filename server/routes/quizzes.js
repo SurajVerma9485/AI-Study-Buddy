@@ -441,28 +441,46 @@ router.post(['/:id/complete', '/attempts/:id/complete'], (req, res) => {
     }
   }
 
+  // Calculate dynamic topic performance
+  const topicMap = {};
+  explanations.forEach((exp) => {
+    const tName = exp.topicName || quiz?.topicName || quiz?.title || 'Core Concepts';
+    if (!topicMap[tName]) topicMap[tName] = { total: 0, correct: 0 };
+    topicMap[tName].total++;
+    if (exp.isCorrect) topicMap[tName].correct++;
+  });
+
+  const topicPerformance = Object.entries(topicMap).map(([topicName, stats]) => {
+    const score = Math.round((stats.correct / stats.total) * 100);
+    return {
+      topicName,
+      score,
+      status: score >= 80 ? 'Mastered' : score >= 60 ? 'Improving' : 'Weak Area',
+    };
+  });
+
+  const weakTopics = topicPerformance
+    .filter((tp) => tp.score < 75)
+    .map((tp) => tp.topicName);
+
   const result = {
     attemptId,
     quizId: quiz?.id || 'unknown',
     quizTitle: quiz?.title || 'Practice Quiz',
+    courseId: quiz?.courseId || 'course-cs301',
+    courseCode: quiz?.courseCode || 'CS 301',
     score: correctCount,
     totalQuestions: total,
     correctCount,
     incorrectCount: total - correctCount,
     percentage,
     completedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    topicPerformance: [
-      {
-        topicName: quiz?.topicName || 'Core Concepts',
-        score: percentage,
-        status: percentage >= 80 ? 'Mastered' : percentage >= 60 ? 'Improving' : 'Weak Area',
-      },
-    ],
-    weakTopics: percentage < 80 ? [quiz?.topicName || 'Core Concepts'] : [],
+    topicPerformance,
+    weakTopics,
     recommendedActivity: {
-      title: percentage < 80 ? 'Review with AI Tutor' : 'Challenge: Next Topic',
+      title: weakTopics.length > 0 ? `Review ${weakTopics[0]} with AI Tutor` : 'Challenge: Next Topic',
       type: 'AI Tutor Session',
-      reason: percentage < 80 ? 'Reinforce weak areas identified in this quiz' : 'Great score — push further!',
+      reason: weakTopics.length > 0 ? 'Reinforce weak areas identified in this quiz' : 'Great score — push further!',
       route: `/courses/${quiz?.courseId || 'course-cs301'}/tutor`,
     },
     explanations,
