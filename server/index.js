@@ -11,6 +11,7 @@ import courseRoutes from './routes/courses.js';
 import studyPlansDataRoutes from './routes/studyPlansData.js';
 import quizRoutes, { generateQuizHandler } from './routes/quizzes.js';
 import progressRoutes from './routes/progress.js';
+import documentsRoutes from './routes/documents.js';
 
 import { initDatabase } from './db.js';
 
@@ -73,6 +74,8 @@ app.use('/api/v1/quizzes', quizRoutes);
 app.use('/api/v1/attempts', quizRoutes);
 
 app.use('/api/v1/progress', progressRoutes);
+
+app.use('/api/v1/documents', documentsRoutes);
 
 // =====================================================
 // SERVE REACT FRONTEND

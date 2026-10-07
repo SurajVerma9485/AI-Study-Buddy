@@ -10,8 +10,8 @@ export default function Login() {
   const navigate = useNavigate();
   const { login, loginAsDemoStudent, loading } = useAuth();
 
-  const [email, setEmail] = useState('alex.vance@mit.edu');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {

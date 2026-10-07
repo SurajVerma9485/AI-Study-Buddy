@@ -70,6 +70,7 @@ export default function Dashboard() {
   });
 
   const loadHubData = async () => {
+    if (!user) return;
     try {
       const [progressRes, plansRes, quizzesRes] = await Promise.allSettled([
         progressService.getGlobalProgress(),
@@ -78,35 +79,36 @@ export default function Dashboard() {
       ]);
 
       const globalProg = progressRes.status === 'fulfilled' ? progressRes.value : null;
-      const plans = plansRes.status === 'fulfilled' ? plansRes.value : [];
-      const quizzes = quizzesRes.status === 'fulfilled' ? quizzesRes.value : [];
+      const plans = plansRes.status === 'fulfilled' && Array.isArray(plansRes.value) ? plansRes.value : [];
+      const quizzes = quizzesRes.status === 'fulfilled' && Array.isArray(quizzesRes.value) ? quizzesRes.value : [];
 
-      // Extract today's study plan tasks across active plans
+      // Extract today's study plan tasks across active plans for this user
       const todayTasks = plans.flatMap((p) =>
         (p.tasks || [])
           .filter((t) => t.scheduledFor === 'Today')
           .map((t) => ({ ...t, planId: p.id, courseCode: p.courseCode }))
       );
 
-      const dynamicWeak = weakTopicsManager.getWeakTopics(selectedCourseFilter);
-      const dynamicQuizzes = weakTopicsManager.getQuizHistory(selectedCourseFilter);
+      const dynamicWeak = weakTopicsManager.getWeakTopics(selectedCourseFilter, user.id);
+      const dynamicQuizzes = weakTopicsManager.getQuizHistory(selectedCourseFilter, user.id);
 
       setHubData({
-        weakTopics: dynamicWeak,
-        todayTasks: todayTasks.length > 0 ? todayTasks : MOCK_STUDY_PLAN_TASKS,
-        recentQuizzes: dynamicQuizzes.length > 0 ? dynamicQuizzes.slice(0, 3) : (quizzes.length > 0 ? quizzes.slice(0, 3) : (globalProg?.quizHistory?.slice(0, 3) || MOCK_RECENT_QUIZZES)),
-        overallMastery: globalProg?.overallMastery || 74,
-        questionsAttempted: globalProg?.questionsAttempted || 85,
-        correctAnswers: globalProg?.correctAnswers || 68,
+        weakTopics: dynamicWeak.length > 0 ? dynamicWeak : (globalProg?.weakTopics || []),
+        todayTasks: todayTasks,
+        recentQuizzes: dynamicQuizzes.length > 0 ? dynamicQuizzes.slice(0, 3) : quizzes.slice(0, 3),
+        overallMastery: globalProg?.overallMastery ?? 0,
+        questionsAttempted: globalProg?.questionsAttempted ?? 0,
+        correctAnswers: globalProg?.correctAnswers ?? 0,
+        studyStreakDays: globalProg?.studyStreakDays ?? 0,
         loading: false,
       });
     } catch (err) {
       console.error('Error loading hub data in Dashboard', err);
       setHubData((prev) => ({
         ...prev,
-        weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter),
-        todayTasks: MOCK_STUDY_PLAN_TASKS,
-        recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter).slice(0, 3),
+        weakTopics: [],
+        todayTasks: [],
+        recentQuizzes: [],
         loading: false,
       }));
     }
@@ -114,28 +116,30 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadHubData();
-  }, []);
+  }, [user?.id]);
 
   // Re-sync weak topics and quizzes whenever selected course changes
   useEffect(() => {
+    if (!user) return;
     setHubData((prev) => ({
       ...prev,
-      weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter),
-      recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter).slice(0, 3),
+      weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter, user.id),
+      recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter, user.id).slice(0, 3),
     }));
-  }, [selectedCourseFilter]);
+  }, [selectedCourseFilter, user?.id]);
 
   // Subscribe to real-time quiz completions across the app
   useEffect(() => {
+    if (!user) return;
     const unsubscribe = weakTopicsManager.subscribe(() => {
       setHubData((prev) => ({
         ...prev,
-        weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter),
-        recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter).slice(0, 3),
+        weakTopics: weakTopicsManager.getWeakTopics(selectedCourseFilter, user.id),
+        recentQuizzes: weakTopicsManager.getQuizHistory(selectedCourseFilter, user.id).slice(0, 3),
       }));
     });
     return unsubscribe;
-  }, [selectedCourseFilter]);
+  }, [selectedCourseFilter, user?.id]);
 
   const handleToggleTask = async (planId, taskId) => {
     setHubData((prev) => ({
@@ -157,30 +161,55 @@ export default function Dashboard() {
   const nextExamCourse = sortedCourses[0] || null;
   const daysUntilExam = nextExamCourse
     ? Math.max(0, Math.ceil((new Date(nextExamCourse.examDate) - new Date()) / (1000 * 60 * 60 * 24)))
-    : 30;
+    : null;
 
-  const recommendedActivities = [
+  const recommendedActivities = courses.length === 0 ? [
+    {
+      id: 'rec-1',
+      title: 'Create Your First Course',
+      type: 'Course Setup',
+      reason: 'Organize your academic subjects & exam deadlines',
+      actionText: 'Create Course',
+      actionRoute: '/courses',
+    },
+    {
+      id: 'rec-2',
+      title: 'Upload Lecture Notes or Syllabus',
+      type: 'Document Ingestion',
+      reason: 'Provide study context for AI answers and quizzes',
+      actionText: 'Upload Document',
+      actionRoute: '/documents',
+    },
+    {
+      id: 'rec-3',
+      title: 'Explore AI Study Buddy Tutor',
+      type: 'AI Tutor Session',
+      reason: 'Ask conceptual questions with ELI10 mode explanations',
+      actionText: 'Launch Tutor',
+      actionRoute: '/tutor',
+    },
+  ] : [
     {
       id: 'rec-1',
       title: hubData.weakTopics[0]?.topic
         ? `Overcome Gap: ${hubData.weakTopics[0].topic}`
-        : 'Review Raft Consensus Key Invariants',
+        : `Review ${courses[0]?.name || 'Course'} Key Invariants`,
       type: 'AI Tutor Session',
       reason: hubData.weakTopics[0]
         ? `Low mastery index (${hubData.weakTopics[0].mastery}%) detected in recent drills`
-        : 'Low retention score in recent quiz',
+        : 'Deepen syllabus conceptual retention',
       actionText: 'Launch ELI10 Tutor',
       actionRoute: hubData.weakTopics[0]?.courseId
         ? `/courses/${hubData.weakTopics[0].courseId}/tutor`
-        : '/tutor',
+        : `/courses/${courses[0]?.id}/tutor`,
     },
     {
       id: 'rec-2',
-      title: `Practice 5-min Diagnostic Drill (${nextExamCourse ? nextExamCourse.code : 'CS 301'})`,
+      title: `Practice 5-min Diagnostic Drill (${nextExamCourse ? nextExamCourse.code : courses[0]?.code})`,
       type: 'Practice Quiz',
-      reason: `Exam in ${daysUntilExam} days`,
+      reason: daysUntilExam !== null ? `Exam in ${daysUntilExam} days` : 'Evaluate topic understanding',
       actionText: 'Start Drill',
-      actionRoute: nextExamCourse ? `/courses/${nextExamCourse.id}/quizzes` : '/quizzes',
+      actionRoute: nextExamCourse ? `/courses/${nextExamCourse.id}/quizzes` : `/courses/${courses[0]?.id}/quizzes`,
     },
     {
       id: 'rec-3',
@@ -188,7 +217,7 @@ export default function Dashboard() {
       type: 'Document Ingestion',
       reason: 'Enhance RAG context grounding',
       actionText: 'Upload Document',
-      actionRoute: nextExamCourse ? `/courses/${nextExamCourse.id}/documents` : '/documents',
+      actionRoute: nextExamCourse ? `/courses/${nextExamCourse.id}/documents` : `/courses/${courses[0]?.id}/documents`,
     },
   ];
 
@@ -403,10 +432,10 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: '#f59e0b', marginBottom: '4px' }}>
-              {daysUntilExam} Days Left
+              {nextExamCourse ? `${daysUntilExam} Days Left` : 'None'}
             </div>
             <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
-              {nextExamCourse ? `${nextExamCourse.code} (${nextExamCourse.examDate})` : 'Target Exam Scheduled'}
+              {nextExamCourse ? `${nextExamCourse.code} (${nextExamCourse.examDate})` : 'No upcoming exams scheduled'}
             </span>
           </CardContent>
         </Card>
@@ -421,10 +450,10 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: '#f59e0b', marginBottom: '4px' }}>
-              {user?.studyStreakDays || 14} Days
+              {user?.studyStreakDays ?? hubData.studyStreakDays ?? 0} Days
             </div>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              {hubData.questionsAttempted} drill questions attempted
+              {hubData.questionsAttempted || 0} drill questions attempted
             </span>
           </CardContent>
         </Card>
@@ -558,89 +587,119 @@ export default function Dashboard() {
               </Badge>
             </CardHeader>
             <CardContent style={{ padding: '0 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {hubData.todayTasks.slice(0, 4).map((task) => {
-                const isCompleted = task.status === 'completed';
-                return (
-                  <div
-                    key={task.id}
-                    style={{
-                      padding: '14px',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: isCompleted ? 'rgba(16, 185, 129, 0.04)' : 'var(--bg-elevated)',
-                      border: isCompleted ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid var(--border-subtle)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: '12px',
-                      opacity: isCompleted ? 0.75 : 1,
-                    }}
+              {hubData.todayTasks.length === 0 ? (
+                <div
+                  style={{
+                    padding: '24px 16px',
+                    textAlign: 'center',
+                    background: 'var(--bg-elevated)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px dashed var(--border-medium)',
+                  }}
+                >
+                  <CalendarCheck size={26} color="var(--primary)" style={{ marginBottom: '8px' }} />
+                  <div style={{ fontWeight: 700, fontSize: '0.925rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    No Tasks Scheduled for Today
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
+                    Generate a personalized study plan to get prioritized revision tasks for your exams.
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={Sparkles}
+                    onClick={() => navigate('/study-plans')}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <button
-                        onClick={() => handleToggleTask(task.planId, task.id)}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: isCompleted ? '#10b981' : 'var(--text-muted)',
-                          padding: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
-                      >
-                        {isCompleted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                      </button>
+                    Create Study Plan
+                  </Button>
+                </div>
+              ) : (
+                hubData.todayTasks.slice(0, 4).map((task) => {
+                  const isCompleted = task.status === 'completed';
+                  return (
+                    <div
+                      key={task.id}
+                      style={{
+                        padding: '14px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: isCompleted ? 'rgba(16, 185, 129, 0.04)' : 'var(--bg-elevated)',
+                        border: isCompleted ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        opacity: isCompleted ? 0.75 : 1,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button
+                          onClick={() => handleToggleTask(task.planId, task.id)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: isCompleted ? '#10b981' : 'var(--text-muted)',
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          {isCompleted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                        </button>
 
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)' }}>
-                            {task.courseCode}
-                          </span>
-                          <h4
-                            style={{
-                              fontSize: '0.925rem',
-                              fontWeight: 600,
-                              margin: 0,
-                              textDecoration: isCompleted ? 'line-through' : 'none',
-                            }}
-                          >
-                            {task.title || task.topic}
-                          </h4>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)' }}>
+                              {task.courseCode}
+                            </span>
+                            <h4
+                              style={{
+                                fontSize: '0.925rem',
+                                fontWeight: 600,
+                                margin: 0,
+                                textDecoration: isCompleted ? 'line-through' : 'none',
+                              }}
+                            >
+                              {task.title || task.topic}
+                            </h4>
+                          </div>
+                          <p style={{ fontSize: '0.785rem', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
+                            {task.activity || task.activityType} • <span style={{ color: '#f59e0b' }}>{task.reason || task.duration}</span>
+                          </p>
                         </div>
-                        <p style={{ fontSize: '0.785rem', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
-                          {task.activity || task.activityType} • <span style={{ color: '#f59e0b' }}>{task.reason || task.duration}</span>
-                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {task.duration || `${task.durationMinutes}m`}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => navigate('/study-plans')}
+                          style={{ fontSize: '0.775rem' }}
+                        >
+                          Details →
+                        </Button>
                       </div>
                     </div>
+                  );
+                })
+              )}
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        {task.duration || `${task.durationMinutes}m`}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate('/study-plans')}
-                        style={{ fontSize: '0.775rem' }}
-                      >
-                        Details →
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div style={{ marginTop: '8px' }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  fullWidth
-                  onClick={() => navigate('/study-plans')}
-                >
-                  View Full Study Calendar
-                </Button>
-              </div>
+              {hubData.todayTasks.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    fullWidth
+                    onClick={() => navigate('/study-plans')}
+                  >
+                    View Full Study Calendar
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

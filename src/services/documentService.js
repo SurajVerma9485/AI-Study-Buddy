@@ -1,22 +1,29 @@
 import apiClient from './api';
 import { MOCK_DOCUMENTS } from './mockData';
+import { getUserStorageKey, getCurrentUserId } from './storageHelper';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
-const LOCAL_DOCUMENTS_KEY = 'study_buddy_documents_data';
 
-// Initialize or get local storage documents for dev fallback
+const getDocumentsKey = () => getUserStorageKey('documents_data');
+
 const getLocalDocs = () => {
   try {
-    const saved = localStorage.getItem(LOCAL_DOCUMENTS_KEY);
-    return saved ? JSON.parse(saved) : MOCK_DOCUMENTS;
+    const key = getDocumentsKey();
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
+    const uid = getCurrentUserId();
+    if (uid === '00000000-0000-0000-0000-000000000001' || uid === 'anonymous') {
+      return MOCK_DOCUMENTS;
+    }
+    return [];
   } catch {
-    return MOCK_DOCUMENTS;
+    return [];
   }
 };
 
 const setLocalDocs = (docs) => {
   try {
-    localStorage.setItem(LOCAL_DOCUMENTS_KEY, JSON.stringify(docs));
+    localStorage.setItem(getDocumentsKey(), JSON.stringify(docs));
   } catch (err) {
     console.error('Failed to save documents locally', err);
   }
@@ -30,6 +37,53 @@ const setLocalDocs = (docs) => {
  * - GET /api/v1/documents/:id/status
  */
 export const documentService = {
+  /**
+   * Fetch all documents across all courses for authenticated user
+   */
+  async getAllDocuments() {
+    try {
+      const response = await apiClient.get('/documents');
+      return response.data;
+    } catch (error) {
+      if (ENABLE_MOCK_FALLBACK && (!error.response || error.code === 'ERR_NETWORK')) {
+        return getLocalDocs();
+      }
+      return [];
+    }
+  },
+
+  /**
+   * Post document to user account with course association
+   */
+  async postDocument({ courseId, fileName, fileType, size }) {
+    try {
+      const response = await apiClient.post('/documents', {
+        courseId,
+        fileName,
+        fileType,
+        size,
+      });
+      return response.data;
+    } catch (error) {
+      if (ENABLE_MOCK_FALLBACK && (!error.response || error.code === 'ERR_NETWORK')) {
+        const newDoc = {
+          id: `doc-${Date.now()}`,
+          courseId,
+          fileName,
+          fileType: fileType || 'PDF',
+          size: size || '1.8 MB',
+          uploadedAt: new Date().toISOString().split('T')[0],
+          status: 'indexed',
+          chunksCount: 24,
+        };
+        const allDocs = getLocalDocs();
+        setLocalDocs([newDoc, ...allDocs]);
+        return newDoc;
+      }
+      throw error;
+    }
+  },
+
   /**
    * Fetch all documents for a specific course
    */

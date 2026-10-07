@@ -2,23 +2,31 @@ import apiClient from '../../../services/api';
 import { MOCK_COURSES, MOCK_RECENT_QUIZZES } from '../../../services/mockData';
 import { groqService } from '../../../services/groqService';
 import { weakTopicsManager } from '../../../services/weakTopicsManager';
+import { getUserStorageKey, getCurrentUserId } from '../../../services/storageHelper';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
-const LOCAL_QUIZZES_KEY = 'study_buddy_quizzes_data';
-const LOCAL_ATTEMPTS_KEY = 'study_buddy_quiz_attempts_data';
+
+const getQuizzesKey = () => getUserStorageKey('quizzes_data');
+const getAttemptsKey = () => getUserStorageKey('quiz_attempts_data');
 
 const getLocalQuizzes = () => {
   try {
-    const saved = localStorage.getItem(LOCAL_QUIZZES_KEY);
-    return saved ? JSON.parse(saved) : MOCK_RECENT_QUIZZES;
+    const key = getQuizzesKey();
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
+    const uid = getCurrentUserId();
+    if (uid === '00000000-0000-0000-0000-000000000001' || uid === 'anonymous') {
+      return MOCK_RECENT_QUIZZES;
+    }
+    return [];
   } catch {
-    return MOCK_RECENT_QUIZZES;
+    return [];
   }
 };
 
 const setLocalQuizzes = (quizzes) => {
   try {
-    localStorage.setItem(LOCAL_QUIZZES_KEY, JSON.stringify(quizzes));
+    localStorage.setItem(getQuizzesKey(), JSON.stringify(quizzes));
   } catch (err) {
     console.error('Failed to save quizzes locally', err);
   }

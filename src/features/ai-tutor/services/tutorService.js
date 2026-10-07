@@ -1,14 +1,16 @@
 import apiClient from '../../../services/api';
 import { MOCK_COURSES, MOCK_DOCUMENTS } from '../../../services/mockData';
 import { groqService } from '../../../services/groqService';
+import { getUserStorageKey } from '../../../services/storageHelper';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
-const LOCAL_CONVERSATIONS_KEY = 'study_buddy_conversations_data';
+
+const getConvKey = (courseId) => getUserStorageKey(`conversations_${courseId}`);
 
 // Helper to get local conversation threads
 const getLocalConversations = (courseId) => {
   try {
-    const saved = localStorage.getItem(`${LOCAL_CONVERSATIONS_KEY}_${courseId}`);
+    const saved = localStorage.getItem(getConvKey(courseId));
     if (saved) return JSON.parse(saved);
   } catch (err) {
     console.error('Failed to read local conversations', err);
@@ -57,14 +59,14 @@ const getLocalConversations = (courseId) => {
   ];
 
   try {
-    localStorage.setItem(`${LOCAL_CONVERSATIONS_KEY}_${courseId}`, JSON.stringify(defaultThreads));
+    localStorage.setItem(getConvKey(courseId), JSON.stringify(defaultThreads));
   } catch {}
   return defaultThreads;
 };
 
 const setLocalConversations = (courseId, threads) => {
   try {
-    localStorage.setItem(`${LOCAL_CONVERSATIONS_KEY}_${courseId}`, JSON.stringify(threads));
+    localStorage.setItem(getConvKey(courseId), JSON.stringify(threads));
   } catch (err) {
     console.error('Failed to save conversations locally', err);
   }

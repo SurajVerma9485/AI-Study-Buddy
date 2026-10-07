@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from './authService';
 import { getAccessToken, clearTokens } from '../../services/api';
+import { clearUserSessionAndCache } from '../../services/storageHelper';
 import { MOCK_USER } from '../../services/mockData';
 
 const AuthContext = createContext(null);
@@ -31,13 +32,19 @@ export function AuthProvider({ children }) {
 
   const clearError = () => setError(null);
 
-  const login = async (credentials) => {
+  const login = async (credentials, maybePassword) => {
     setIsLoading(true);
     setError(null);
+    const creds = typeof credentials === 'string' ? { email: credentials, password: maybePassword } : credentials;
     try {
-      const { user: loggedInUser } = await authService.login(credentials);
+      const { user: loggedInUser } = await authService.login(creds);
+      // Clean up previous user temporary cache if user switched
+      if (user && user.id !== loggedInUser.id) {
+        clearUserSessionAndCache(user.id);
+      }
       setUser(loggedInUser);
       setIsLoading(false);
+      window.dispatchEvent(new CustomEvent('study_buddy_user_changed', { detail: { userId: loggedInUser.id } }));
       return loggedInUser;
     } catch (err) {
       setIsLoading(false);
@@ -51,8 +58,12 @@ export function AuthProvider({ children }) {
     setError(null);
     try {
       const { user: registeredUser } = await authService.register(userData);
+      if (user && user.id !== registeredUser.id) {
+        clearUserSessionAndCache(user.id);
+      }
       setUser(registeredUser);
       setIsLoading(false);
+      window.dispatchEvent(new CustomEvent('study_buddy_user_changed', { detail: { userId: registeredUser.id } }));
       return registeredUser;
     } catch (err) {
       setIsLoading(false);
@@ -63,14 +74,17 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     setIsLoading(true);
+    const prevUserId = user?.id;
     try {
       await authService.logout();
     } catch (err) {
       console.warn('Logout error', err);
     } finally {
+      clearUserSessionAndCache(prevUserId);
       clearTokens();
       setUser(null);
       setIsLoading(false);
+      window.dispatchEvent(new CustomEvent('study_buddy_user_changed', { detail: { userId: null } }));
     }
   };
 
@@ -78,10 +92,14 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     setError(null);
     await new Promise((r) => setTimeout(r, 400));
-    const demoUser = { ...MOCK_USER };
+    const demoUser = { ...MOCK_USER, id: '00000000-0000-0000-0000-000000000001' };
+    if (user && user.id !== demoUser.id) {
+      clearUserSessionAndCache(user.id);
+    }
     setUser(demoUser);
     localStorage.setItem('study_buddy_access_token', 'demo-access-token-12345');
     setIsLoading(false);
+    window.dispatchEvent(new CustomEvent('study_buddy_user_changed', { detail: { userId: demoUser.id } }));
     return demoUser;
   };
 

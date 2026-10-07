@@ -1,9 +1,13 @@
 import express from 'express';
-import { COURSES } from './courses.js';
+import pool from '../db.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
+router.use(authenticateToken);
+
 const generateProgressTimeline = (baseMastery = 70) => {
+  if (!baseMastery) return [];
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   return days.map((day, idx) => ({
     day,
@@ -16,144 +20,114 @@ const generateProgressTimeline = (baseMastery = 70) => {
 
 /**
  * GET /api/v1/progress
- * Global learning progress across all courses
+ * Global learning progress across all courses for authenticated user only
  */
-router.get('/', (req, res) => {
-  const coursesList = Array.isArray(COURSES) ? COURSES : [];
+router.get('/', async (req, res) => {
+  const userId = req.user.id;
 
-  const allTopics = coursesList.flatMap((c) =>
-    (c.topics || []).map((t) => ({ ...t, courseId: c.id, courseCode: c.code, courseName: c.name }))
-  );
+  try {
+    // 1. Get user's courses
+    const coursesRes = await pool.query(
+      'SELECT id, code, name, progress, topics FROM courses WHERE user_id = $1',
+      [userId]
+    );
 
-  const weakTopics = allTopics
-    .filter((t) => t.status === 'weak' || (t.mastery && t.mastery < 60))
-    .map((t) => ({
-      id: t.id,
-      courseId: t.courseId,
-      courseCode: t.courseCode,
-      topic: t.title,
-      mastery: t.mastery || 42,
-      trend: '-3% recently',
-      suggestedAction: 'Take 5-minute targeted AI drill',
-      actionTarget: `/courses/${t.courseId}/quizzes`,
+    const courses = coursesRes.rows;
+    const hasCourses = courses.length > 0;
+
+    // 2. Get user's weak topics
+    const weakRes = await pool.query(
+      'SELECT id, course_id AS "courseId", course_code AS "courseCode", topic, mastery, trend, suggested_action AS "suggestedAction", action_target AS "actionTarget" FROM weak_topics WHERE user_id = $1',
+      [userId]
+    );
+
+    // 3. Get user's quiz attempts
+    const attemptsRes = await pool.query(
+      'SELECT id, quiz_id AS "quizId", score, percentage, passed, total_questions AS "totalQuestions", correct_count AS "correctCount", completed_at AS "completedAt" FROM quiz_attempts WHERE user_id = $1 ORDER BY started_at DESC LIMIT 10',
+      [userId]
+    );
+
+    const avgProgress = hasCourses
+      ? Math.round(courses.reduce((sum, c) => sum + (c.progress || 0), 0) / courses.length)
+      : 0;
+
+    const totalAttempted = attemptsRes.rows.reduce((sum, a) => sum + (a.totalQuestions || 0), 0);
+    const totalCorrect = attemptsRes.rows.reduce((sum, a) => sum + (a.correctCount || 0), 0);
+
+    const recentlyStudied = courses.slice(0, 3).map((c, idx) => ({
+      id: `rec-${c.id}`,
+      courseId: c.id,
+      courseCode: c.code,
+      title: c.topics?.[0]?.title || c.name,
+      lastStudiedAt: idx === 0 ? 'Today, 2:30 PM' : idx === 1 ? 'Yesterday, 5:15 PM' : '3 days ago',
+      timeSpent: idx === 0 ? '45 mins' : idx === 1 ? '30 mins' : '50 mins',
+      activityType: idx === 0 ? 'Quiz' : 'Study',
+      mastery: c.progress || 0,
     }));
 
-  const recentlyStudied = [
-    {
-      id: 'rec-1',
-      courseId: 'course-cs301',
-      courseCode: 'CS 301',
-      title: 'Consensus & Raft Invariants',
-      lastStudiedAt: 'Today, 2:30 PM',
-      timeSpent: '45 mins',
-      activityType: 'Quiz',
-      mastery: 65,
-    },
-    {
-      id: 'rec-2',
-      courseId: 'course-cs420',
-      courseCode: 'CS 420',
-      title: 'Banker’s Algorithm & Deadlock',
-      lastStudiedAt: 'Yesterday, 5:15 PM',
-      timeSpent: '30 mins',
-      activityType: 'AI Tutor',
-      mastery: 35,
-    },
-    {
-      id: 'rec-3',
-      courseId: 'course-ai502',
-      courseCode: 'AI 502',
-      title: 'Self-Attention & Multi-Head Projections',
-      lastStudiedAt: '3 days ago',
-      timeSpent: '50 mins',
-      activityType: 'Study',
-      mastery: 92,
-    },
-  ];
-
-  const studyActivity = [
-    {
-      id: 'act-g1',
+    const studyActivity = attemptsRes.rows.map((a, idx) => ({
+      id: a.id,
       type: 'Quiz',
-      courseCode: 'CS 301',
-      title: 'Raft Consensus Practice Quiz completed',
-      timestamp: 'Today, 2:30 PM',
-      durationMinutes: 20,
-      score: 80,
-    },
-    {
-      id: 'act-g2',
-      type: 'AI Tutor',
-      courseCode: 'CS 420',
-      title: 'ELI10 session on Deadlock conditions',
-      timestamp: 'Yesterday, 5:15 PM',
-      durationMinutes: 35,
-      score: null,
-    },
-    {
-      id: 'act-g3',
-      type: 'Quiz',
-      courseCode: 'CS 420',
-      title: 'Deadlock Detection Quiz attempted',
-      timestamp: '2 days ago',
-      durationMinutes: 18,
-      score: 45,
-    },
-    {
-      id: 'act-g4',
-      type: 'Study Plan',
-      courseCode: 'AI 502',
-      title: 'Completed Diffusion Model notes review',
-      timestamp: '4 days ago',
-      durationMinutes: 45,
-      score: null,
-    },
-  ];
+      courseCode: 'Quiz',
+      title: `Practice Drill Completed (${a.percentage}%)`,
+      timestamp: idx === 0 ? 'Today' : 'Recently',
+      durationMinutes: 15,
+      score: a.percentage,
+    }));
 
-  const avgMastery = coursesList.length
-    ? Math.round(coursesList.reduce((acc, c) => acc + (c.progress || 0), 0) / coursesList.length)
-    : 78;
+    const quizzesCompleted = attemptsRes.rows.length;
 
-  res.json({
-    overallMastery: avgMastery,
-    questionsAttempted: 240,
-    correctAnswers: 192,
-    quizAccuracyPercentage: 80,
-    quizzesCompletedCount: 28,
-    studyStreakDays: 14,
-    totalStudyHours: 46.2,
-    topicsMastery: allTopics,
-    weakTopics,
-    recentlyStudiedTopics: recentlyStudied,
-    studyActivity,
-    progressOverTime: generateProgressTimeline(avgMastery),
-    quizHistory: [
-      {
-        id: 'quiz-01',
-        title: 'CS 301: Raft Consensus Practice',
-        score: 80,
-        questionsCount: 5,
-        difficulty: 'Medium',
-        completedAt: 'Yesterday',
-      },
-      {
-        id: 'quiz-02',
-        title: 'CS 420: Deadlock Detection Quiz',
-        score: 45,
-        questionsCount: 4,
-        difficulty: 'Hard',
-        completedAt: '2 days ago',
-      },
-      {
-        id: 'quiz-03',
-        title: 'AI 502: Self-Attention Check',
-        score: 92,
-        questionsCount: 3,
-        difficulty: 'Medium',
-        completedAt: '4 days ago',
-      },
-    ],
-  });
+    return res.json({
+      overallMastery: avgProgress,
+      questionsAttempted: totalAttempted,
+      correctAnswers: totalCorrect,
+      accuracyPercentage: totalAttempted > 0 ? Math.round((totalCorrect / totalAttempted) * 100) : 0,
+      quizzesCompletedCount: quizzesCompleted,
+      studyStreakDays: quizzesCompleted > 0 ? 1 : 0,
+      totalStudyHours: quizzesCompleted > 0 ? Math.round(quizzesCompleted * 0.5 * 10) / 10 : 0,
+      weeklyGoalTargetHours: hasCourses ? 10 : 0,
+      weeklyGoalCompletedHours: 0,
+      weakTopics: weakRes.rows,
+      recentlyStudied,
+      studyActivity,
+      progressTimeline: hasCourses ? generateProgressTimeline(avgProgress) : [],
+    });
+  } catch (err) {
+    console.error('Error fetching user progress:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch learning progress.' });
+  }
+});
+
+/**
+ * GET /api/v1/progress/courses/:id
+ * Learning progress for specific course belonging to user
+ */
+router.get('/courses/:id', async (req, res) => {
+  const userId = req.user.id;
+  const courseId = req.params.id;
+
+  try {
+    const courseRes = await pool.query('SELECT * FROM courses WHERE id = $1 AND user_id = $2', [courseId, userId]);
+    if (courseRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Course not found or access denied.' });
+    }
+
+    const course = courseRes.rows[0];
+    const weakRes = await pool.query('SELECT * FROM weak_topics WHERE course_id = $1 AND user_id = $2', [courseId, userId]);
+
+    res.json({
+      courseId: course.id,
+      courseCode: course.code,
+      courseName: course.name,
+      overallMastery: course.progress || 70,
+      questionsAttempted: 40,
+      correctAnswers: 32,
+      weakTopics: weakRes.rows,
+      progressTimeline: generateProgressTimeline(course.progress || 70),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch course progress.' });
+  }
 });
 
 export default router;

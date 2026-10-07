@@ -1,7 +1,5 @@
 import { MOCK_WEAK_TOPICS, MOCK_RECENT_QUIZZES } from './mockData';
-
-const WEAK_TOPICS_STORAGE_KEY = 'study_buddy_course_weak_topics';
-const QUIZ_HISTORY_STORAGE_KEY = 'study_buddy_quiz_history';
+import { getUserStorageKey, getCurrentUserId } from './storageHelper';
 
 // Helper to safely load JSON from localStorage
 function getStoredJson(key, defaultValue) {
@@ -22,68 +20,74 @@ function setStoredJson(key, value) {
   }
 }
 
-// Initial seed if not present
-function initializeStore() {
-  const existing = localStorage.getItem(WEAK_TOPICS_STORAGE_KEY);
-  if (!existing) {
-    // Seed initial mock weak topics with their course associations
-    const initial = [
-      {
-        id: 'weak-1',
-        courseId: 'course-cs420',
-        courseCode: 'CS 420',
-        topic: 'Concurrency Primitives & Deadlock',
-        mastery: 35,
-        trend: '-5% on recent quiz',
-        sourceQuizTitle: 'Deadlock Detection & Concurrency Primitives',
-        suggestedAction: 'Review with AI Tutor in ELI10 mode',
-        actionTarget: '/courses/course-cs420/tutor',
-        lastDiagnosed: '2 days ago',
-      },
-      {
-        id: 'weak-2',
-        courseId: 'course-cs301',
-        courseCode: 'CS 301',
-        topic: 'Logical Time & Vector Clocks',
-        mastery: 42,
-        trend: '-8% on recent quiz',
-        sourceQuizTitle: 'Raft Consensus & Leader Election Practice',
-        suggestedAction: 'Review Vector Clocks Document Chunks',
-        actionTarget: '/courses/course-cs301/tutor',
-        lastDiagnosed: 'Yesterday',
-      },
-      {
-        id: 'weak-3',
-        courseId: 'course-ai502',
-        courseCode: 'AI 502',
-        topic: 'Diffusion Models & Score Matching',
-        mastery: 45,
-        trend: 'New topic diagnosed',
-        sourceQuizTitle: 'Self-Attention & Positional Encodings Check',
-        suggestedAction: 'Start ELI10 Tutor Session',
-        actionTarget: '/courses/course-ai502/tutor',
-        lastDiagnosed: '4 days ago',
-      },
-    ];
-    setStoredJson(WEAK_TOPICS_STORAGE_KEY, initial);
+function getWeakTopicsKey(userId = null) {
+  return getUserStorageKey('course_weak_topics', userId);
+}
+
+function getQuizHistoryKey(userId = null) {
+  return getUserStorageKey('quiz_history', userId);
+}
+
+// Initial seed if not present for current user
+function initializeStore(userId = null) {
+  const currentUid = userId || getCurrentUserId();
+  const weakKey = getWeakTopicsKey(currentUid);
+  const existingWeak = localStorage.getItem(weakKey);
+
+  if (!existingWeak) {
+    // If it's a demo or anonymous user, provide initial starter weak topics
+    if (currentUid === '00000000-0000-0000-0000-000000000001' || currentUid === 'anonymous') {
+      const initial = [
+        {
+          id: 'weak-1',
+          courseId: 'course-cs420',
+          courseCode: 'CS 420',
+          topic: 'Concurrency Primitives & Deadlock',
+          mastery: 35,
+          trend: '-5% on recent quiz',
+          sourceQuizTitle: 'Deadlock Detection & Concurrency Primitives',
+          suggestedAction: 'Review with AI Tutor in ELI10 mode',
+          actionTarget: '/courses/course-cs420/tutor',
+          lastDiagnosed: '2 days ago',
+        },
+        {
+          id: 'weak-2',
+          courseId: 'course-cs301',
+          courseCode: 'CS 301',
+          topic: 'Logical Time & Vector Clocks',
+          mastery: 42,
+          trend: '-8% on recent quiz',
+          sourceQuizTitle: 'Raft Consensus & Leader Election Practice',
+          suggestedAction: 'Review Vector Clocks Document Chunks',
+          actionTarget: '/courses/course-cs301/tutor',
+          lastDiagnosed: 'Yesterday',
+        },
+      ];
+      setStoredJson(weakKey, initial);
+    } else {
+      setStoredJson(weakKey, []);
+    }
   }
 
-  const existingHistory = localStorage.getItem(QUIZ_HISTORY_STORAGE_KEY);
+  const historyKey = getQuizHistoryKey(currentUid);
+  const existingHistory = localStorage.getItem(historyKey);
   if (!existingHistory) {
-    setStoredJson(QUIZ_HISTORY_STORAGE_KEY, MOCK_RECENT_QUIZZES);
+    if (currentUid === '00000000-0000-0000-0000-000000000001') {
+      setStoredJson(historyKey, MOCK_RECENT_QUIZZES);
+    } else {
+      setStoredJson(historyKey, []);
+    }
   }
 }
 
-// Initialize immediately
-initializeStore();
-
 export const weakTopicsManager = {
   /**
-   * Get weak topics filtered by courseId (or all if 'all' / null)
+   * Get weak topics filtered by courseId (or all if 'all' / null) for the logged in user
    */
-  getWeakTopics(courseId = 'all') {
-    initializeStore();
-    const all = getStoredJson(WEAK_TOPICS_STORAGE_KEY, []);
+  getWeakTopics(courseId = 'all', userId = null) {
+    const currentUid = userId || getCurrentUserId();
+    initializeStore(currentUid);
+    const all = getStoredJson(getWeakTopicsKey(currentUid), []);
     if (!courseId || courseId === 'all') {
       return all;
     }
@@ -91,11 +95,12 @@ export const weakTopicsManager = {
   },
 
   /**
-   * Get recent quiz history filtered by courseId (or all)
+   * Get recent quiz history filtered by courseId (or all) for the logged in user
    */
-  getQuizHistory(courseId = 'all') {
-    initializeStore();
-    const all = getStoredJson(QUIZ_HISTORY_STORAGE_KEY, []);
+  getQuizHistory(courseId = 'all', userId = null) {
+    const currentUid = userId || getCurrentUserId();
+    initializeStore(currentUid);
+    const all = getStoredJson(getQuizHistoryKey(currentUid), []);
     if (!courseId || courseId === 'all') {
       return all;
     }
@@ -105,9 +110,10 @@ export const weakTopicsManager = {
   /**
    * Update weak topics and quiz history from a completed quiz evaluation
    */
-  updateFromQuizResult(evaluation, quiz = null) {
+  updateFromQuizResult(evaluation, quiz = null, userId = null) {
     if (!evaluation) return;
-    initializeStore();
+    const currentUid = userId || getCurrentUserId();
+    initializeStore(currentUid);
 
     const courseId = quiz?.courseId || evaluation.courseId || 'course-cs301';
     const courseCode = quiz?.courseCode || evaluation.courseCode || 'GENERAL';
@@ -117,8 +123,9 @@ export const weakTopicsManager = {
       evaluation.percentage ??
       Math.round(((evaluation.correctCount || 0) / Math.max(evaluation.totalQuestions || 1, 1)) * 100);
 
-    // 1. Record in quiz history
-    const history = getStoredJson(QUIZ_HISTORY_STORAGE_KEY, []);
+    // 1. Record in user-scoped quiz history
+    const historyKey = getQuizHistoryKey(currentUid);
+    const history = getStoredJson(historyKey, []);
     const newHistoryEntry = {
       id: evaluation.attemptId || `att-${Date.now()}`,
       quizId,
@@ -132,14 +139,13 @@ export const weakTopicsManager = {
       type: quiz?.type || 'Diagnostic Quiz',
       timestamp: Date.now(),
     };
-    // Put at top of history
     const updatedHistory = [newHistoryEntry, ...history.filter((h) => h.quizId !== quizId)].slice(0, 15);
-    setStoredJson(QUIZ_HISTORY_STORAGE_KEY, updatedHistory);
+    setStoredJson(historyKey, updatedHistory);
 
     // 2. Identify topics evaluated in this quiz attempt
-    const currentWeak = getStoredJson(WEAK_TOPICS_STORAGE_KEY, []);
+    const weakKey = getWeakTopicsKey(currentUid);
+    const currentWeak = getStoredJson(weakKey, []);
 
-    // Gather topic breakdown from explanations
     const topicScores = {};
     if (evaluation.explanations && Array.isArray(evaluation.explanations)) {
       evaluation.explanations.forEach((exp) => {
@@ -152,7 +158,6 @@ export const weakTopicsManager = {
       });
     }
 
-    // Fallback to quiz-level topic
     if (Object.keys(topicScores).length === 0) {
       const fallbackTopic = (quiz?.topicName || quizTitle).trim();
       topicScores[fallbackTopic] = {
@@ -161,14 +166,12 @@ export const weakTopicsManager = {
       };
     }
 
-    // Check each topic
     let updatedWeakList = [...currentWeak];
 
     Object.entries(topicScores).forEach(([topicName, stats]) => {
       const topicScore = Math.round((stats.correct / stats.total) * 100);
 
       if (topicScore < 75) {
-        // Concept Gap / Weak Topic diagnosed!
         const existingIdx = updatedWeakList.findIndex(
           (w) =>
             (w.courseId === courseId || w.courseCode === courseCode) &&
@@ -199,7 +202,6 @@ export const weakTopicsManager = {
           updatedWeakList.unshift(weakItem);
         }
       } else {
-        // High score (>= 75%)! Clear or remove this topic from weak topics for this course
         updatedWeakList = updatedWeakList.filter(
           (w) =>
             !(
@@ -210,12 +212,11 @@ export const weakTopicsManager = {
       }
     });
 
-    setStoredJson(WEAK_TOPICS_STORAGE_KEY, updatedWeakList);
+    setStoredJson(weakKey, updatedWeakList);
 
-    // 3. Dispatch real-time window events
     window.dispatchEvent(
       new CustomEvent('study_buddy_quiz_updated', {
-        detail: { courseId, courseCode, percentage, quizTitle },
+        detail: { courseId, courseCode, percentage, quizTitle, userId: currentUid },
       })
     );
   },
@@ -229,10 +230,12 @@ export const weakTopicsManager = {
     };
     window.addEventListener('study_buddy_quiz_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
+    window.addEventListener('study_buddy_user_changed', handleUpdate);
 
     return () => {
       window.removeEventListener('study_buddy_quiz_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('study_buddy_user_changed', handleUpdate);
     };
   },
 };

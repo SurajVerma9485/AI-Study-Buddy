@@ -1,6 +1,7 @@
 import apiClient from '../../../services/api';
 import { MOCK_COURSES, MOCK_RECENT_QUIZZES } from '../../../services/mockData';
 import { weakTopicsManager } from '../../../services/weakTopicsManager';
+import { getUserStorageKey, getCurrentUserId } from '../../../services/storageHelper';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
 
@@ -38,10 +39,13 @@ export const progressService = {
 
         const savedCourses = (() => {
           try {
-            const raw = localStorage.getItem('study_buddy_courses_data');
-            return raw ? JSON.parse(raw) : MOCK_COURSES;
+            const key = getUserStorageKey('courses_data');
+            const raw = localStorage.getItem(key);
+            if (raw) return JSON.parse(raw);
+            const uid = getCurrentUserId();
+            return uid === '00000000-0000-0000-0000-000000000001' ? MOCK_COURSES : [];
           } catch {
-            return MOCK_COURSES;
+            return [];
           }
         })();
 
@@ -162,14 +166,17 @@ export const progressService = {
 
         const savedCourses = (() => {
           try {
-            const raw = localStorage.getItem('study_buddy_courses_data');
-            return raw ? JSON.parse(raw) : MOCK_COURSES;
+            const key = getUserStorageKey('courses_data');
+            const raw = localStorage.getItem(key);
+            if (raw) return JSON.parse(raw);
+            const uid = getCurrentUserId();
+            return uid === '00000000-0000-0000-0000-000000000001' ? MOCK_COURSES : [];
           } catch {
-            return MOCK_COURSES;
+            return [];
           }
         })();
 
-        const coursesList = savedCourses && savedCourses.length > 0 ? savedCourses : MOCK_COURSES;
+        const coursesList = savedCourses || [];
 
         const allTopics = coursesList.flatMap((c) =>
           (c.topics || []).map((t) => ({ ...t, courseId: c.id, courseCode: c.code, courseName: c.name }))

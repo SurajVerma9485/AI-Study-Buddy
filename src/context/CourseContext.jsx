@@ -1,34 +1,58 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { courseService } from '../services/courseService';
+import AuthContext from '../features/auth/authContext';
 import { MOCK_COURSES } from '../services/mockData';
 
 const CourseContext = createContext(null);
 
 export function CourseProvider({ children }) {
+  const auth = useContext(AuthContext);
+  const user = auth ? auth.user : null;
+  const isTestOrGuest = !auth;
+
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchCourses = useCallback(async () => {
+    if (!user && !isTestOrGuest) {
+      setCourses([]);
+      setSelectedCourseId(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const data = await courseService.getCourses();
-      setCourses(data);
-      if (data.length > 0 && !selectedCourseId) {
-        setSelectedCourseId(data[0].id);
+      const userCourses = Array.isArray(data) ? data : [];
+      if (userCourses.length === 0 && isTestOrGuest) {
+        setCourses(MOCK_COURSES);
+        setSelectedCourseId(MOCK_COURSES[0].id);
+      } else {
+        setCourses(userCourses);
+        if (userCourses.length > 0) {
+          setSelectedCourseId((prev) => (userCourses.some((c) => c.id === prev) ? prev : userCourses[0].id));
+        } else {
+          setSelectedCourseId(null);
+        }
       }
     } catch (err) {
       console.error('Failed to load courses from API:', err);
       setError(err.message || 'Failed to load courses.');
-      // Fallback so UI remains functional
-      setCourses(MOCK_COURSES);
-      setSelectedCourseId(MOCK_COURSES[0].id);
+      if (isTestOrGuest) {
+        setCourses(MOCK_COURSES);
+        setSelectedCourseId(MOCK_COURSES[0].id);
+      } else {
+        setCourses([]);
+        setSelectedCourseId(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, [selectedCourseId]);
+  }, [user, isTestOrGuest]);
 
   useEffect(() => {
     fetchCourses();

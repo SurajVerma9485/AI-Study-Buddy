@@ -119,7 +119,7 @@ export default function Profile() {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>
-                    {user?.name || 'Alex Vance'}
+                    {user?.name || 'Student'}
                   </h2>
                   <Badge variant="primary" size="sm">
                     {user?.role === 'student' ? 'Enrolled Student' : 'Active Learner'}
@@ -129,12 +129,12 @@ export default function Profile() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '6px', flexWrap: 'wrap', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Mail size={14} />
-                    {user?.email || 'alex.vance@mit.edu'}
+                    {user?.email || 'student@university.edu'}
                   </span>
                   <span>•</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <GraduationCap size={14} />
-                    {user?.institution || 'Department of Computer Science'}
+                    {user?.institution || 'University Student'}
                   </span>
                 </div>
               </div>
@@ -153,7 +153,7 @@ export default function Profile() {
               >
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Streak</span>
                 <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
-                  <Flame size={18} /> {user?.studyStreakDays || 14}d
+                  <Flame size={18} /> {user?.studyStreakDays ?? 0}d
                 </div>
               </div>
 
@@ -168,7 +168,7 @@ export default function Profile() {
               >
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Mastery</span>
                 <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--primary)' }}>
-                  {user?.averageMastery || 78}%
+                  {user?.averageMastery ?? 0}%
                 </div>
               </div>
 
@@ -183,7 +183,7 @@ export default function Profile() {
               >
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Drills</span>
                 <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#10b981' }}>
-                  {user?.quizzesCompleted || 28}
+                  {user?.quizzesCompleted ?? 0}
                 </div>
               </div>
             </div>

@@ -1,9 +1,10 @@
 import apiClient from '../../../services/api';
 import { MOCK_COURSES, MOCK_WEAK_TOPICS } from '../../../services/mockData';
 import { groqService } from '../../../services/groqService';
+import { getUserStorageKey, getCurrentUserId } from '../../../services/storageHelper';
 
 const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
-const LOCAL_PLANS_KEY = 'study_buddy_study_plans_data';
+const getPlansKey = () => getUserStorageKey('study_plans_data');
 
 // Helper to calculate days between two dates
 export const calculateDaysRemaining = (targetDateStr) => {
@@ -198,16 +199,22 @@ const DEFAULT_STUDY_PLANS = [
 
 const getStoredPlans = () => {
   try {
-    const saved = localStorage.getItem(LOCAL_PLANS_KEY);
-    return saved ? JSON.parse(saved) : DEFAULT_STUDY_PLANS;
+    const key = getPlansKey();
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
+    const uid = getCurrentUserId();
+    if (uid === '00000000-0000-0000-0000-000000000001' || uid === 'anonymous') {
+      return DEFAULT_STUDY_PLANS;
+    }
+    return [];
   } catch {
-    return DEFAULT_STUDY_PLANS;
+    return [];
   }
 };
 
 const setStoredPlans = (plans) => {
   try {
-    localStorage.setItem(LOCAL_PLANS_KEY, JSON.stringify(plans));
+    localStorage.setItem(getPlansKey(), JSON.stringify(plans));
   } catch (err) {
     console.error('Failed to cache study plans locally', err);
   }
@@ -228,7 +235,11 @@ export const studyPlanService = {
   async getStudyPlans() {
     try {
       const response = await apiClient.get('/study-plans');
-      return response.data;
+      const data = response.data;
+      if (Array.isArray(data)) {
+        setStoredPlans(data);
+      }
+      return data;
     } catch (error) {
       if (ENABLE_MOCK_FALLBACK && (!error.response || error.code === 'ERR_NETWORK')) {
         await new Promise((r) => setTimeout(r, 200));
@@ -279,7 +290,7 @@ export const studyPlanService = {
     const effectiveStudyTime = studyTime || `${availableMinutesPerDay || 120} mins/day`;
     const effectiveMinutes = Number(dailyMinutes || availableMinutesPerDay || 120);
 
-    // 1. Send request to Backend API (which calls Grok / Groq API)
+    // 1. Send request to Backend API (which calls Grok / Groq API and persists to DB)
     try {
       const response = await apiClient.post('/ai/study-plan', {
         classLevel,
@@ -328,6 +339,19 @@ export const studyPlanService = {
           tasks: groqPlan.tasks || [],
           isGeneratedByGroq: true,
         };
+
+        // Persist to backend DB
+        try {
+          const savedRes = await apiClient.post('/study-plans', newPlan);
+          if (savedRes.data) {
+            const currentPlans = getStoredPlans();
+            const updated = [savedRes.data, ...currentPlans.filter((p) => p.id !== savedRes.data.id)];
+            setStoredPlans(updated);
+            return savedRes.data;
+          }
+        } catch (saveErr) {
+          console.warn('Failed to save groq plan to backend:', saveErr.message);
+        }
 
         const existingPlans = getStoredPlans();
         const updatedPlans = [newPlan, ...existingPlans];
@@ -386,6 +410,19 @@ export const studyPlanService = {
         },
       ],
     };
+
+    // Persist fallback plan to backend DB
+    try {
+      const savedRes = await apiClient.post('/study-plans', fallbackPlan);
+      if (savedRes.data) {
+        const currentPlans = getStoredPlans();
+        const updated = [savedRes.data, ...currentPlans.filter((p) => p.id !== savedRes.data.id)];
+        setStoredPlans(updated);
+        return savedRes.data;
+      }
+    } catch (saveErr) {
+      console.warn('Failed to save fallback plan to backend:', saveErr.message);
+    }
 
     const existingPlans = getStoredPlans();
     const updatedPlans = [fallbackPlan, ...existingPlans];

@@ -98,12 +98,13 @@ export default function StudyPlansPage() {
           onAction={() => setIsCreateModalOpen(true)}
         />
       ) : (
-        /* Featured Grok AI Study Plan Roadmap */
-        plans[0] && (
-          <div>
-            <DayByDayPlanCard plan={plans[0]} />
-          </div>
-        )
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {plans.map((p) => (
+            <div key={p.id || p.createdAt}>
+              <DayByDayPlanCard plan={p} />
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Create Plan Modal */}
